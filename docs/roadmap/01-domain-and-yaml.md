@@ -3,6 +3,8 @@
 ## 1. Objective
 Bootstrap the core data structures, immutable Java 17 records, Jackson YAML configuration mapper, and unit tests under the base package `io.github.kapil1502.releasetrain`.
 
+**Platform:** Spring Boot 4.1 with Jackson 3 (`tools.jackson.*`). This phase adds two dependencies to `pom.xml`, both version-managed by the Spring Boot parent: `tools.jackson.dataformat:jackson-dataformat-yaml` and test-scoped `com.h2database:h2`.
+
 ---
 
 ## 2. Target File Structure
@@ -73,30 +75,28 @@ Create immutable records representing the declarative YAML deployment contract.
   ```
 
 ### Step 2: Configure Jackson YAML Mapper Bean (`config/`)
-Configure Jackson to deserialize YAML files into Java 17 records safely, registering required modules (`ParameterNamesModule`, `JavaTimeModule`).
+Configure a Jackson 3 `YAMLMapper` to deserialize YAML files into Java 17 records safely. Record constructor binding and `java.time` support are built into Jackson 3, so no extra modules are registered. The bean must not be `@Primary`: Spring Boot's auto-configured `JsonMapper` stays the default for REST bodies and Kafka payloads.
 
 * **`io.github.kapil1502.releasetrain.config.YamlConfig.java`**
   ```java
   package io.github.kapil1502.releasetrain.config;
 
-  import com.fasterxml.jackson.databind.ObjectMapper;
-  import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
-  import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-  import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
   import org.springframework.context.annotation.Bean;
   import org.springframework.context.annotation.Configuration;
-  import org.springframework.context.annotation.Primary;
+
+  import tools.jackson.databind.DeserializationFeature;
+  import tools.jackson.dataformat.yaml.YAMLMapper;
 
   @Configuration
   public class YamlConfig {
 
       @Bean(name = "yamlObjectMapper")
-      @Primary
-      public ObjectMapper yamlObjectMapper() {
-          ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-          mapper.registerModule(new ParameterNamesModule());
-          mapper.registerModule(new JavaTimeModule());
-          return mapper;
+      public YAMLMapper yamlObjectMapper() {
+          return YAMLMapper.builder()
+                  // Jackson 3 ignores unknown properties by default; a misspelled key in a
+                  // deployment spec must be rejected, not silently dropped.
+                  .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                  .build();
       }
   }
   ```
@@ -108,26 +108,28 @@ Create a service that reads an input stream or file path and maps it to `Deploym
   ```java
   package io.github.kapil1502.releasetrain.service;
 
-  import com.fasterxml.jackson.databind.ObjectMapper;
-  import io.github.kapil.releasetrain.dto.DeploymentSpec;
-  import org.springframework.beans.factory.annotation.Qualifier;
+  import java.io.InputStream;
+
+  import io.github.kapil1502.releasetrain.dto.DeploymentSpec;
+
   import org.springframework.stereotype.Service;
 
-  import java.io.InputStream;
+  import tools.jackson.core.JacksonException;
+  import tools.jackson.dataformat.yaml.YAMLMapper;
 
   @Service
   public class DeploymentConfigParser {
 
-      private final ObjectMapper yamlObjectMapper;
+      private final YAMLMapper yamlObjectMapper;
 
-      public DeploymentConfigParser(@Qualifier("yamlObjectMapper") ObjectMapper yamlObjectMapper) {
+      public DeploymentConfigParser(YAMLMapper yamlObjectMapper) {
           this.yamlObjectMapper = yamlObjectMapper;
       }
 
       public DeploymentSpec parse(InputStream inputStream) {
           try {
               return yamlObjectMapper.readValue(inputStream, DeploymentSpec.class);
-          } catch (Exception e) {
+          } catch (JacksonException e) {
               throw new IllegalArgumentException("Failed to parse deployment YAML specification", e);
           }
       }
@@ -138,14 +140,14 @@ Create a service that reads an input stream or file path and maps it to `Deploym
 
 ## 4. Verification & Testing Criteria
 
-Claude Code must write a unit test verifying successful parsing of a sample YAML configuration string.
+Claude Code must write a unit test verifying successful parsing of a sample YAML configuration string, and that malformed YAML, unknown keys, and unreadable input are rejected with `IllegalArgumentException`.
 
 * **`src/test/java/io/github/kapil1502/releasetrain/service/DeploymentConfigParserTest.java`**
   ```java
   package io.github.kapil1502.releasetrain.service;
 
-  import io.github.kapil.releasetrain.config.YamlConfig;
-  import io.github.kapil.releasetrain.dto.DeploymentSpec;
+  import io.github.kapil1502.releasetrain.config.YamlConfig;
+  import io.github.kapil1502.releasetrain.dto.DeploymentSpec;
   import org.junit.jupiter.api.Test;
   import org.springframework.beans.factory.annotation.Autowired;
   import org.springframework.boot.test.context.SpringBootTest;

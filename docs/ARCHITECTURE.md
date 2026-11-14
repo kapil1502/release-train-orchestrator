@@ -2,7 +2,7 @@
 
 ## 1. High-Level Overview
 
-The **Release Train Orchestrator** is an event-driven Control Plane built with **Java 17**, **Spring Boot 3.4**, **Apache Kafka**, and **Spring Data JPA**. It automates progressive canary rollouts (e.g., `1% -> 5% -> 25% -> 100%`) across distributed microservices by parsing declarative YAML deployment specifications and reacting to asynchronous lifecycle events.
+The **Release Train Orchestrator** is an event-driven Control Plane built with **Java 17**, **Spring Boot 4.1**, **Apache Kafka**, and **Spring Data JPA**. It automates progressive canary rollouts (e.g., `1% -> 5% -> 25% -> 100%`) across distributed microservices by parsing declarative YAML deployment specifications and reacting to asynchronous lifecycle events.
 
 ### Core Architectural Principles
 - **Strict Ordering per Rollout:** All Kafka topics are partitioned by `deploymentId`, guaranteeing that events for a single release train are processed sequentially without race conditions.
