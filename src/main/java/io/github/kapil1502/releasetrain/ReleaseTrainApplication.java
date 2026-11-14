@@ -4,10 +4,10 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class ReleaseTrainOrchestratorApplication {
+public class ReleaseTrainApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(ReleaseTrainOrchestratorApplication.class, args);
+		SpringApplication.run(ReleaseTrainApplication.class, args);
 	}
 
 }
