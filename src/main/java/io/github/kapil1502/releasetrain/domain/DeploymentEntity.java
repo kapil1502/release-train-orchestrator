@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -43,6 +44,11 @@ public class DeploymentEntity {
 	private Instant createdAt;
 
 	private Instant updatedAt;
+
+	// Optimistic lock: a write based on a stale read fails instead of silently overwriting a newer status
+	@Version
+	@Column(nullable = false)
+	private Long rowVersion;
 
 	@PrePersist
 	void prePersist() {

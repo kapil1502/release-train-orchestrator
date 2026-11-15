@@ -17,6 +17,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import static io.github.kapil1502.releasetrain.domain.DeploymentStatus.CREATED;
 import static io.github.kapil1502.releasetrain.domain.DeploymentStatus.FAILED;
@@ -113,6 +114,36 @@ class RolloutStateMachineServiceTest {
 		assertThat(reloaded.getStatus()).isEqualTo(CREATED);
 		assertThat(reloaded.getCreatedAt()).isNotNull();
 		assertThat(reloaded.getUpdatedAt()).isEqualTo(reloaded.getCreatedAt());
+	}
+
+	@Test
+	void shouldIncrementRowVersionOnEachTransition() {
+		saveDeployment(CREATED);
+		long initialVersion = reloadDeployment().getRowVersion();
+
+		// Flush after each call: the test shares one transaction, production commits each transition separately
+		stateMachineService.transition(DEPLOYMENT_ID, STEP_IN_PROGRESS);
+		entityManager.flush();
+		stateMachineService.transition(DEPLOYMENT_ID, HEALTH_CHECKING);
+		entityManager.flush();
+
+		assertThat(reloadDeployment().getRowVersion()).isEqualTo(initialVersion + 2);
+	}
+
+	@Test
+	void shouldRejectWriteBasedOnStaleRead() {
+		saveDeployment(HEALTH_CHECKING);
+		// Writer A reads the row, then is detached while writer B commits a newer status
+		DeploymentEntity staleCopy = reloadDeployment();
+		entityManager.detach(staleCopy);
+
+		stateMachineService.transition(DEPLOYMENT_ID, ROLLBACK_IN_PROGRESS);
+		entityManager.flush();
+
+		staleCopy.setStatus(STEP_COMPLETED);
+		assertThatThrownBy(() -> deploymentRepository.saveAndFlush(staleCopy))
+				.isInstanceOf(ObjectOptimisticLockingFailureException.class);
+		assertThat(reloadDeployment().getStatus()).isEqualTo(ROLLBACK_IN_PROGRESS);
 	}
 
 	static Stream<Arguments> validTransitions() {
