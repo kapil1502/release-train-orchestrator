@@ -33,3 +33,13 @@ This project is built as an **event-driven Control Plane** that automates progre
 ### 4. Declarative YAML Contracts over Hardcoded Pipeline Logic
 - **The Bottleneck:** Hardcoding rollout percentages, wait windows, and target services inside backend code requires redeploying the orchestrator whenever a team tweaks its release strategy.
 - **The Decision:** Developers submit self-contained `deployment-spec.yaml` files via REST API. **Jackson YAML** parses these contracts dynamically into execution plans, decoupling platform orchestration logic from individual service release schedules.
+
+---
+
+## 🔧 Known Limitations & Future Improvements
+
+### Concurrent Updates to Deployment State (Optimistic Locking)
+- **Current Behavior:** `RolloutStateMachineService.transition()` reads a `DeploymentEntity`, validates the transition, and saves the new status inside a single `@Transactional` boundary. `DeploymentEntity` has no `@Version` column, so the database does not detect concurrent writers.
+- **Why It Works Today:** Kafka topics are partitioned by `deploymentId`, so only one consumer thread processes events for a given rollout at a time. Transitions for a single deployment are therefore applied sequentially.
+- **The Risk:** If a second writer is introduced — e.g. a REST endpoint for a manual rollback or pause, a scheduler that advances steps after `pauseDurationSeconds`, or a consumer group rebalance that briefly overlaps two consumers — two transactions can read the same status, both pass validation, and the last commit wins. This is a classic *lost update* that can leave a rollout in a state the state machine never allowed (e.g. a manual `ROLLBACK_IN_PROGRESS` silently overwritten by `STEP_COMPLETED`).
+- **Proposed Improvement:** Add a `@Version private long version;` field to `DeploymentEntity` so Hibernate issues `UPDATE ... WHERE version = ?`. A stale write then fails with `ObjectOptimisticLockingFailureException`, which callers should handle by re-reading the entity and re-validating the transition (retry for Kafka consumers, `409 Conflict` for REST callers). Pessimistic locking (`@Lock(PESSIMISTIC_WRITE)` on the repository lookup) is an alternative if contention turns out to be high.
